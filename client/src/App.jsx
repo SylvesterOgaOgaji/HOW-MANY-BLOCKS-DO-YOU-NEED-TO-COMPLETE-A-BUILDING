@@ -4,6 +4,7 @@ import BoqTab from './components/BoqTab.jsx';
 import RoadmapTab from './components/RoadmapTab.jsx';
 import CityGuideTab from './components/CityGuideTab.jsx';
 import SiteLabTab from './components/SiteLabTab.jsx';
+import SiteMapTab from './components/SiteMapTab.jsx';
 import { HOUSE_TEMPLATES, PLOT_PRESETS, ROOM_PALETTE } from './data/presets.js';
 
 const formatNaira = (n) => `₦${Math.round(Number(n) || 0).toLocaleString('en-NG')}`;
@@ -29,6 +30,7 @@ export default function App() {
   const [plotId, setPlotId] = useState('full_450');
   const [customPlotWidth, setCustomPlotWidth] = useState(15);
   const [customPlotDepth, setCustomPlotDepth] = useState(25);
+  const [siteGeo, setSiteGeo] = useState(null);
   const [buildMode, setBuildMode] = useState('room_snap');
   const [activeTool, setActiveTool] = useState('eps_panel');
   const [pieceOrientation, setPieceOrientation] = useState('h');
@@ -436,7 +438,8 @@ export default function App() {
           { id: 'boq', label: '2. Full BOQ & Blocks vs. EPS' },
           { id: 'roadmap', label: '3. Save & Build Coach' },
           { id: 'city', label: '4. City, Approvals & Sourcing' },
-          { id: 'lab', label: '5. Site Check & DIY Lab' }
+          { id: 'lab', label: '5. Site Check & DIY Lab' },
+          { id: 'map', label: '6. Map, Beacons & Wind/Water' }
         ].map((t) => (
           <button
             key={t.id}
@@ -761,12 +764,13 @@ export default function App() {
                 onRemovePiece={(id) =>
                   setPlacedPieces((prev) => prev.filter((p) => p.id !== id))
                 }
+                siteGeo={siteGeo}
               />
 
               {buildMode === 'room_snap' && (
                 <div className="stage-scrubber">
                   <div className="scrubber-head">
-                    <strong>Watch It Build Step-by-Step:</strong>
+                    <strong>Watch It Build (4D Time + 5D Cost):</strong>
                     <span className="stage-current">{STAGE_LABELS[buildStage]}</span>
                   </div>
                   <input
@@ -789,6 +793,31 @@ export default function App() {
                       </button>
                     ))}
                   </div>
+                  {estimate && (
+                    <div className="bim-4d5d-row">
+                      <span>
+                        4D Schedule: <strong>Week {buildStage === 1 ? '1' : buildStage === 2 ? '2–3' : buildStage === 3 ? (isEps ? '4' : '4–8') : buildStage === 4 ? '9' : buildStage === 5 ? '10–11' : '12'}</strong>
+                      </span>
+                      <span>
+                        5D Cumulative Spend by Stage {buildStage}:{' '}
+                        <strong>
+                          {formatNaira(
+                            buildStage === 1
+                              ? Math.round(estimate.costs.substructureCost * 0.12)
+                              : buildStage === 2
+                                ? estimate.costs.substructureCost
+                                : buildStage === 3
+                                  ? estimate.costs.substructureCost + Math.round(estimate.costs.wallingCost * 0.85)
+                                  : buildStage === 4
+                                    ? estimate.costs.substructureCost + estimate.costs.wallingCost + estimate.costs.superstructureDeckingCost
+                                    : buildStage === 5
+                                      ? estimate.costs.carcassTotal - estimate.costs.waterCost
+                                      : estimate.costs.completeTurnkeyTotal
+                          )}
+                        </strong>
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -884,6 +913,34 @@ export default function App() {
         )}
 
         {activeTab === 'lab' && <SiteLabTab />}
+
+        {activeTab === 'map' && (
+          <SiteMapTab
+            cityId={cityId}
+            plot={plot}
+            siteGeo={siteGeo}
+            onApplyToStudio={(analysis) => {
+              const w = Math.round(analysis.polygon.widthM);
+              const d = Math.round(analysis.polygon.depthM);
+              setPlotId('custom');
+              setCustomPlotWidth(w);
+              setCustomPlotDepth(d);
+              setSiteGeo({
+                beacons: analysis.beacons,
+                center: analysis.polygon.center,
+                slopeHighEdge: analysis.advice.slopeHighEdge,
+                houseRotationDeg: analysis.advice.recommendedHouseRotationDeg,
+                boreholePos: analysis.advice.boreholePos,
+                septicPos: analysis.advice.septicPos,
+                separationM: analysis.advice.separationM
+              });
+              setActiveTab('studio');
+              setStatusBanner(
+                `Applied Survey Plot (${w}m × ${d}m, ${analysis.polygon.areaM2}m²), +${analysis.advice.recommendedHouseRotationDeg}° wind heading, & ${analysis.advice.separationM}m Borehole–Septic separation to 3D Studio!`
+              );
+            }}
+          />
+        )}
       </main>
     </div>
   );

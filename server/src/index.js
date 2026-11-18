@@ -7,6 +7,7 @@ import { nanoid } from 'nanoid';
 import { NIGERIA_CITIES, LEARNING_VIDEOS } from './data/nigeriaData.js';
 import { createStore } from './db/store.js';
 import { calculateProjectEstimate } from './services/estimator.js';
+import { analyzeSiteLocation } from './services/geoAdvisor.js';
 
 export async function createApp(options = {}) {
   const app = express();
@@ -56,6 +57,15 @@ export async function createApp(options = {}) {
       res.json(estimate);
     } catch (err) {
       res.status(400).json({ error: err.message || 'Invalid project input' });
+    }
+  });
+
+  app.post('/api/geo-analyze', (req, res) => {
+    try {
+      const analysis = analyzeSiteLocation(req.body || {});
+      res.json(analysis);
+    } catch (err) {
+      res.status(400).json({ error: err.message || 'Invalid survey beacon or location input' });
     }
   });
 

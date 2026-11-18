@@ -578,14 +578,22 @@ function RoofMesh({ bounds, topY, roofStyle, xrayMode }) {
   );
 }
 
-function CompoundFittings({ plot, bounds }) {
-  const tankX = Math.min(plot.width - 1.4, bounds.maxX + 1.8);
-  const tankZ = Math.max(2, bounds.minZ + 1.5);
-  const septicX = Math.max(1.8, bounds.minX + 1.5);
-  const septicZ = Math.min(plot.depth - 2, bounds.maxZ + 2.5);
+function CompoundFittings({ plot, bounds, siteGeo }) {
+  const tankX = siteGeo?.boreholePos?.x ?? Math.min(plot.width - 1.4, bounds.maxX + 1.8);
+  const tankZ = siteGeo?.boreholePos?.z ?? Math.max(2, bounds.minZ + 1.5);
+  const septicX = siteGeo?.septicPos?.x ?? Math.max(1.8, bounds.minX + 1.5);
+  const septicZ = siteGeo?.septicPos?.z ?? Math.min(plot.depth - 2, bounds.maxZ + 2.5);
 
   return (
     <group>
+      {/* SW Wind Direction Marker at plot edge */}
+      <group position={[1.4, 0.08, plot.depth - 1.4]} rotation={[0, Math.PI / 4, 0]}>
+        <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.32, 0.95, 12]} />
+          <meshStandardMaterial color="#0284c7" />
+        </mesh>
+      </group>
+
       <group position={[tankX, 0, tankZ]}>
         {[
           [-0.55, -0.55],
@@ -650,7 +658,8 @@ export default function Builder3D({
   pieceOrientation = 'h',
   placedPieces = [],
   onPlacePiece,
-  onRemovePiece
+  onRemovePiece,
+  siteGeo = null
 }) {
   const controlsRef = useRef(null);
   const [hoverCoord, setHoverCoord] = useState(null);
@@ -863,7 +872,9 @@ export default function Builder3D({
               <RoofMesh bounds={bounds} topY={totalHeight} roofStyle={roofStyle} xrayMode={xrayMode} />
             )}
 
-            {buildStage >= 6 && rooms.length > 0 && <CompoundFittings plot={plot} bounds={bounds} />}
+            {buildStage >= 6 && rooms.length > 0 && (
+              <CompoundFittings plot={plot} bounds={bounds} siteGeo={siteGeo} />
+            )}
           </>
         )}
 

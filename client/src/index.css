@@ -1133,11 +1133,128 @@ select {
   font-weight: 700;
 }
 
+/* Interactive Survey Map & Wind/Water Siting */
+.map-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.map-search-group,
+.map-preset-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-layout-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.map-canvas-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.map-beacon-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.survey-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 600 / 440;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.satellite-bg-tile {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.72;
+}
+
+.survey-svg {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
+
+.map-advice-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.map-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.map-stat-grid div {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.map-stat-grid span {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.map-stat-grid strong {
+  font-size: 0.88rem;
+}
+
+.bim-4d5d-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.bim-4d5d-row strong {
+  color: var(--ink);
+}
+
 @media (max-width: 980px) {
   .studio-layout,
   .two-col-panel,
   .phase-advice-grid,
-  .guide-two-col {
+  .guide-two-col,
+  .map-layout-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1155,3 +1272,4 @@ select {
     display: none !important;
   }
 }
+

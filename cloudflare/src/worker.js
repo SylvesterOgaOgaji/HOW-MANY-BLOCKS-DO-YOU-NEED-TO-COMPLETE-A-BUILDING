@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { NIGERIA_CITIES, LEARNING_VIDEOS } from '../../server/src/data/nigeriaData.js';
 import { calculateProjectEstimate } from '../../server/src/services/estimator.js';
+import { analyzeSiteLocation } from '../../server/src/services/geoAdvisor.js';
 
 const TWENTY_FOUR_HOURS_SECONDS = 24 * 60 * 60;
 const app = new Hono();
@@ -44,6 +45,16 @@ app.post('/api/estimate', async (c) => {
     return c.json(estimate);
   } catch (err) {
     return c.json({ error: err?.message || 'Invalid project input' }, 400);
+  }
+});
+
+app.post('/api/geo-analyze', async (c) => {
+  try {
+    const body = await c.req.json();
+    const analysis = analyzeSiteLocation(body || {});
+    return c.json(analysis);
+  } catch (err) {
+    return c.json({ error: err?.message || 'Invalid survey beacon input' }, 400);
   }
 });
 

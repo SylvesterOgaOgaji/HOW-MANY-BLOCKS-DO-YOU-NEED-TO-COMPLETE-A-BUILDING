@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { calculateProjectEstimate, computeWallSegmentsFromRooms } from '../src/services/estimator.js';
+import { analyzeSiteLocation, parseGoogleMapsOrCoords } from '../src/services/geoAdvisor.js';
 import { createApp } from '../src/index.js';
 
 test('deduplicates shared interior walls when rooms snap edge-to-edge', () => {
@@ -129,4 +130,22 @@ test('piece_by_piece mode calculates live quantities directly from snapped EPS p
   assert.ok(estLarger.quantities.wallUnitsCount > estSmall.quantities.wallUnitsCount);
   assert.ok(estLarger.costs.carcassTotal > estSmall.costs.carcassTotal);
 });
+
+test('geoAdvisor parses Google Maps links, measures 15x30m beacons accurately, and enforces >=15m borehole-soakaway separation', () => {
+  const parsed = parseGoogleMapsOrCoords('https://maps.google.com/?q=9.05785,7.49508');
+  assert.ok(parsed && Math.abs(parsed.rawLat - 9.05785) < 0.001);
+
+  const site = analyzeSiteLocation({
+    city: 'abuja',
+    coordQuery: '9.05785, 7.49508',
+    widthM: 15,
+    depthM: 30
+  });
+
+  assert.equal(site.polygon.valid, true);
+  assert.ok(Math.abs(site.polygon.areaM2 - 450) < 5, `Expected ~450m2, got ${site.polygon.areaM2}`);
+  assert.ok(site.advice.separationM >= 15, 'Expected Borehole and Septic separation >= 15m');
+  assert.equal(site.advice.safeSeparation, true);
+});
+
 
