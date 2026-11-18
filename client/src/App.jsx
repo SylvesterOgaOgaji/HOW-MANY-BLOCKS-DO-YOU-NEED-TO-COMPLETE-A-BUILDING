@@ -23,10 +23,16 @@ export default function App() {
   const [videos, setVideos] = useState([]);
   const [health, setHealth] = useState(null);
 
-  // Portable Project State (downloaded/uploaded as .buildpack.json or stored 24h in Postgres)
+  // Portable Project State (downloaded/uploaded as .buildpack.json or stored 24h in Cloud/Postgres)
   const [title, setTitle] = useState('My Abuja 3-Bedroom Plan');
   const [cityId, setCityId] = useState('abuja');
   const [plotId, setPlotId] = useState('full_450');
+  const [customPlotWidth, setCustomPlotWidth] = useState(15);
+  const [customPlotDepth, setCustomPlotDepth] = useState(25);
+  const [buildMode, setBuildMode] = useState('room_snap');
+  const [activeTool, setActiveTool] = useState('eps_panel');
+  const [pieceOrientation, setPieceOrientation] = useState('h');
+  const [placedPieces, setPlacedPieces] = useState([]);
   const [rooms, setRooms] = useState(HOUSE_TEMPLATES[2].rooms);
   const [selectedRoomId, setSelectedRoomId] = useState(HOUSE_TEMPLATES[2].rooms[0].id);
   const [wallSystem, setWallSystem] = useState('eps_panel');
@@ -50,10 +56,14 @@ export default function App() {
   const [statusBanner, setStatusBanner] = useState('');
   const fileInputRef = useRef(null);
 
-  const plot = useMemo(
-    () => PLOT_PRESETS.find((p) => p.id === plotId) || PLOT_PRESETS[1],
-    [plotId]
-  );
+  const plot = useMemo(() => {
+    if (plotId === 'custom') {
+      const w = Math.max(6, Math.min(60, Number(customPlotWidth) || 15));
+      const d = Math.max(8, Math.min(80, Number(customPlotDepth) || 25));
+      return { id: 'custom', label: `Custom (${w}m × ${d}m)`, width: w, depth: d };
+    }
+    return PLOT_PRESETS.find((p) => p.id === plotId) || PLOT_PRESETS[2];
+  }, [plotId, customPlotWidth, customPlotDepth]);
 
   const selectedRoom = useMemo(
     () => rooms.find((r) => r.id === selectedRoomId) || null,
@@ -94,15 +104,19 @@ export default function App() {
     }
   }, []);
 
-  // Recompute live BOQ whenever design or prices change
+  // Recompute live BOQ whenever design, pieces, or prices change
   useEffect(() => {
     const timer = setTimeout(() => {
+      const platformAreaM2 = Math.max(4, plot.width - 2.4) * Math.max(4, plot.depth - 3.0);
       fetch('/api/estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           city: cityId,
+          buildMode,
           rooms,
+          placedPieces,
+          platformAreaM2,
           wallSystem,
           wallHeightM,
           floors,
@@ -118,12 +132,16 @@ export default function App() {
         .then((r) => r.json())
         .then((data) => setEstimate(data))
         .catch(() => {});
-    }, 100);
+    }, 80);
 
     return () => clearTimeout(timer);
   }, [
     cityId,
+    buildMode,
     rooms,
+    placedPieces,
+    plot.width,
+    plot.depth,
     wallSystem,
     wallHeightM,
     floors,
@@ -138,10 +156,14 @@ export default function App() {
 
   function buildPayload() {
     return {
-      version: 1,
+      version: 2,
       title,
       cityId,
       plotId,
+      customPlotWidth,
+      customPlotDepth,
+      buildMode,
+      placedPieces,
       rooms,
       wallSystem,
       wallHeightM,
@@ -161,6 +183,10 @@ export default function App() {
     if (p.title) setTitle(p.title);
     if (p.cityId) setCityId(p.cityId);
     if (p.plotId) setPlotId(p.plotId);
+    if (p.customPlotWidth) setCustomPlotWidth(p.customPlotWidth);
+    if (p.customPlotDepth) setCustomPlotDepth(p.customPlotDepth);
+    if (p.buildMode) setBuildMode(p.buildMode);
+    if (Array.isArray(p.placedPieces)) setPlacedPieces(p.placedPieces);
     if (Array.isArray(p.rooms)) {
       setRooms(p.rooms);
       setSelectedRoomId(p.rooms[0]?.id || null);
@@ -181,12 +207,54 @@ export default function App() {
   function loadTemplate(tplId) {
     const tpl = HOUSE_TEMPLATES.find((t) => t.id === tplId);
     if (!tpl) return;
+    setBuildMode('room_snap');
     setRooms(tpl.rooms.map((r) => ({ ...r })));
     setSelectedRoomId(tpl.rooms[0]?.id || null);
     setFloors(tpl.floors);
     setDoorsCount(tpl.doorsCount);
     setWindowsCount(tpl.windowsCount);
     setTitle(`${currentCityData?.name || 'Nigeria'} — ${tpl.name}`);
+  }
+
+  function handlePlacePiece({ x, z, dir, type }) {
+    const id = `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+    // Auto-stack single blocks vertically if placed at same (x, z)
+    let layer = 0;
+    if (type.includes('single')) {
+      layer = placedPieces.filter(
+        (p) => p.type === type && Math.abs(p.x - x) < 0.05 && Math.abs(p.z - z) < 0.05
+      ).length;
+    }
+    setPlacedPieces((prev) => [...prev, { id, type, x, z, dir, layer }]);
+  }
+
+  function autoGeneratePerimeterFromLand() {
+    const usableW = Math.max(3.6, plot.width - 3.0);
+    const usableD = Math.max(3.6, plot.depth - 4.0);
+    const startX = 1.5;
+    const startZ = 2.0;
+    const modType = wallSystem === 'eps_panel' ? 'eps_panel' : wallSystem === 'block_6' ? 'block_6_bay' : 'block_9_bay';
+    const step = modType === 'eps_panel' ? 1.2 : 0.9;
+    const cols = Math.max(2, Math.floor(usableW / step));
+    const rows = Math.max(2, Math.floor(usableD / step));
+
+    const next = [];
+    let idx = 0;
+    // Top & Bottom edges
+    for (let c = 0; c < cols; c += 1) {
+      const x = Number((startX + c * step).toFixed(2));
+      next.push({ id: `auto_${idx++}`, type: modType, x, z: startZ, dir: 'h', layer: 0 });
+      next.push({ id: `auto_${idx++}`, type: modType, x, z: Number((startZ + rows * step).toFixed(2)), dir: 'h', layer: 0 });
+    }
+    // Left & Right edges
+    for (let r = 0; r < rows; r += 1) {
+      const z = Number((startZ + r * step).toFixed(2));
+      next.push({ id: `auto_${idx++}`, type: modType, x: startX, z, dir: 'v', layer: 0 });
+      next.push({ id: `auto_${idx++}`, type: modType, x: Number((startX + cols * step).toFixed(2)), z, dir: 'v', layer: 0 });
+    }
+    setBuildMode('piece_by_piece');
+    setPlacedPieces(next);
+    setStatusBanner(`Generated ${next.length} wall pieces dynamically for your ${plot.width}m × ${plot.depth}m land! Click anywhere to add interior partitions or remove pieces.`);
   }
 
   function addLegoRoom(preset) {
@@ -387,7 +455,24 @@ export default function App() {
             {/* Left Lego Controls */}
             <aside className="studio-sidebar">
               <section className="control-card">
-                <h3>Start Easy: Plot & House Template</h3>
+                <h3>1. Build Mode & Your Land Size</h3>
+                <div className="seg-group" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                  <button
+                    type="button"
+                    className={`seg-btn ${buildMode === 'room_snap' ? 'active' : ''}`}
+                    onClick={() => setBuildMode('room_snap')}
+                  >
+                    Room Snap Mode
+                  </button>
+                  <button
+                    type="button"
+                    className={`seg-btn ${buildMode === 'piece_by_piece' ? 'active' : ''}`}
+                    onClick={() => setBuildMode('piece_by_piece')}
+                  >
+                    Pick & Fix Pieces
+                  </button>
+                </div>
+
                 <label className="stack-label">
                   <span>Land Plot Size</span>
                   <select value={plotId} onChange={(e) => setPlotId(e.target.value)}>
@@ -398,6 +483,40 @@ export default function App() {
                     ))}
                   </select>
                 </label>
+
+                {plotId === 'custom' && (
+                  <div className="two-inputs" style={{ marginBottom: 10 }}>
+                    <label>
+                      <span>Land Width (m)</span>
+                      <input
+                        type="number"
+                        min="6"
+                        max="60"
+                        value={customPlotWidth}
+                        onChange={(e) => setCustomPlotWidth(Number(e.target.value))}
+                      />
+                    </label>
+                    <label>
+                      <span>Land Depth (m)</span>
+                      <input
+                        type="number"
+                        min="8"
+                        max="80"
+                        value={customPlotDepth}
+                        onChange={(e) => setCustomPlotDepth(Number(e.target.value))}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  style={{ width: '100%', marginBottom: 10 }}
+                  onClick={autoGeneratePerimeterFromLand}
+                >
+                  Auto-Generate Walls For {plot.width}m × {plot.depth}m Land
+                </button>
 
                 <div className="template-list">
                   {HOUSE_TEMPLATES.map((tpl) => (
@@ -415,7 +534,7 @@ export default function App() {
               </section>
 
               <section className="control-card">
-                <h3>Wall System & Structure</h3>
+                <h3>2. Wall System & Structure</h3>
                 <div className="seg-group">
                   {[
                     { id: 'block_9', label: '9" Blocks' },
@@ -486,74 +605,139 @@ export default function App() {
                 </label>
               </section>
 
-              <section className="control-card">
-                <h3>Snap More Lego Rooms</h3>
-                <div className="palette-grid">
-                  {ROOM_PALETTE.map((item) => (
-                    <button
-                      key={item.type}
-                      type="button"
-                      className="palette-btn"
-                      onClick={() => addLegoRoom(item)}
-                    >
-                      + {item.name}
-                    </button>
-                  ))}
-                </div>
-
-                {selectedRoom && (
-                  <div className="selected-room-box">
-                    <div className="selected-head">
-                      <strong>Selected: {selectedRoom.name}</strong>
-                      {rooms.length > 1 && (
-                        <button type="button" className="btn-danger-xs" onClick={removeSelectedRoom}>
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                    <div className="nudge-pad">
-                      <button type="button" onClick={() => updateSelectedRoom({ z: selectedRoom.z - 0.5 })}>
-                        ↑ Back
+              {buildMode === 'piece_by_piece' ? (
+                <section className="control-card">
+                  <h3>3. Pick & Fix Pieces Live ({placedPieces.length} placed)</h3>
+                  <p className="hint-text">
+                    Select a piece below and click on the concrete platform in 3D to snap and count live.
+                  </p>
+                  <div className="palette-grid">
+                    {[
+                      { id: 'eps_panel', label: 'EPS Panel (1.2m)' },
+                      { id: 'block_9_bay', label: '9" Block Bay (0.9m)' },
+                      { id: 'block_6_bay', label: '6" Block Bay (0.9m)' },
+                      { id: 'block_9_single', label: 'Single 9" Block' },
+                      { id: 'starter_peg', label: 'Starter Peg (Y12)' },
+                      { id: 'door', label: 'Door Frame' },
+                      { id: 'window', label: 'Window Bay' },
+                      { id: 'eraser', label: 'Eraser (Delete)' }
+                    ].map((tool) => (
+                      <button
+                        key={tool.id}
+                        type="button"
+                        className={`seg-btn ${activeTool === tool.id ? 'active' : ''}`}
+                        onClick={() => setActiveTool(tool.id)}
+                      >
+                        {tool.label}
                       </button>
-                      <div className="nudge-mid">
-                        <button type="button" onClick={() => updateSelectedRoom({ x: selectedRoom.x - 0.5 })}>
-                          ← Left
+                    ))}
+                  </div>
+                  <div className="seg-group" style={{ gridTemplateColumns: '1fr 1fr', marginTop: 10 }}>
+                    <button
+                      type="button"
+                      className={`seg-btn ${pieceOrientation === 'h' ? 'active' : ''}`}
+                      onClick={() => setPieceOrientation('h')}
+                    >
+                      Rotate: 0° (Horizontal)
+                    </button>
+                    <button
+                      type="button"
+                      className={`seg-btn ${pieceOrientation === 'v' ? 'active' : ''}`}
+                      onClick={() => setPieceOrientation('v')}
+                    >
+                      Rotate: 90° (Vertical)
+                    </button>
+                  </div>
+                  <div className="two-inputs" style={{ marginTop: 8 }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setPlacedPieces((prev) => prev.slice(0, -1))}
+                      disabled={!placedPieces.length}
+                    >
+                      Undo Last Piece
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-danger-xs"
+                      style={{ padding: '8px 10px' }}
+                      onClick={() => setPlacedPieces([])}
+                      disabled={!placedPieces.length}
+                    >
+                      Clear All ({placedPieces.length})
+                    </button>
+                  </div>
+                </section>
+              ) : (
+                <section className="control-card">
+                  <h3>3. Snap More Lego Rooms</h3>
+                  <div className="palette-grid">
+                    {ROOM_PALETTE.map((item) => (
+                      <button
+                        key={item.type}
+                        type="button"
+                        className="palette-btn"
+                        onClick={() => addLegoRoom(item)}
+                      >
+                        + {item.name}
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedRoom && (
+                    <div className="selected-room-box">
+                      <div className="selected-head">
+                        <strong>Selected: {selectedRoom.name}</strong>
+                        {rooms.length > 1 && (
+                          <button type="button" className="btn-danger-xs" onClick={removeSelectedRoom}>
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      <div className="nudge-pad">
+                        <button type="button" onClick={() => updateSelectedRoom({ z: selectedRoom.z - 0.5 })}>
+                          ↑ Back
                         </button>
-                        <button type="button" onClick={() => updateSelectedRoom({ x: selectedRoom.x + 0.5 })}>
-                          Right →
+                        <div className="nudge-mid">
+                          <button type="button" onClick={() => updateSelectedRoom({ x: selectedRoom.x - 0.5 })}>
+                            ← Left
+                          </button>
+                          <button type="button" onClick={() => updateSelectedRoom({ x: selectedRoom.x + 0.5 })}>
+                            Right →
+                          </button>
+                        </div>
+                        <button type="button" onClick={() => updateSelectedRoom({ z: selectedRoom.z + 0.5 })}>
+                          ↓ Front
                         </button>
                       </div>
-                      <button type="button" onClick={() => updateSelectedRoom({ z: selectedRoom.z + 0.5 })}>
-                        ↓ Front
-                      </button>
+                      <div className="two-inputs">
+                        <label>
+                          <span>Width (m)</span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="1.5"
+                            max="12"
+                            value={selectedRoom.width}
+                            onChange={(e) => updateSelectedRoom({ width: Number(e.target.value) })}
+                          />
+                        </label>
+                        <label>
+                          <span>Depth (m)</span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="1.5"
+                            max="12"
+                            value={selectedRoom.depth}
+                            onChange={(e) => updateSelectedRoom({ depth: Number(e.target.value) })}
+                          />
+                        </label>
+                      </div>
                     </div>
-                    <div className="two-inputs">
-                      <label>
-                        <span>Width (m)</span>
-                        <input
-                          type="number"
-                          step="0.5"
-                          min="1.5"
-                          max="12"
-                          value={selectedRoom.width}
-                          onChange={(e) => updateSelectedRoom({ width: Number(e.target.value) })}
-                        />
-                      </label>
-                      <label>
-                        <span>Depth (m)</span>
-                        <input
-                          type="number"
-                          step="0.5"
-                          min="1.5"
-                          max="12"
-                          value={selectedRoom.depth}
-                          onChange={(e) => updateSelectedRoom({ depth: Number(e.target.value) })}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                )}
-              </section>
+                  )}
+                </section>
+              )}
             </aside>
 
             {/* Right 3D Stage + Live KPI Strip */}
@@ -569,42 +753,61 @@ export default function App() {
                 roofStyle={roofStyle}
                 buildStage={buildStage}
                 xrayMode={xrayMode}
+                buildMode={buildMode}
+                activeTool={activeTool}
+                pieceOrientation={pieceOrientation}
+                placedPieces={placedPieces}
+                onPlacePiece={handlePlacePiece}
+                onRemovePiece={(id) =>
+                  setPlacedPieces((prev) => prev.filter((p) => p.id !== id))
+                }
               />
 
-              <div className="stage-scrubber">
-                <div className="scrubber-head">
-                  <strong>Watch It Build Step-by-Step:</strong>
-                  <span className="stage-current">{STAGE_LABELS[buildStage]}</span>
+              {buildMode === 'room_snap' && (
+                <div className="stage-scrubber">
+                  <div className="scrubber-head">
+                    <strong>Watch It Build Step-by-Step:</strong>
+                    <span className="stage-current">{STAGE_LABELS[buildStage]}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="6"
+                    step="1"
+                    value={buildStage}
+                    onChange={(e) => setBuildStage(Number(e.target.value))}
+                  />
+                  <div className="scrubber-ticks">
+                    {[1, 2, 3, 4, 5, 6].map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        className={`tick-btn ${buildStage === s ? 'active' : ''}`}
+                        onClick={() => setBuildStage(s)}
+                      >
+                        Stage {s}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="6"
-                  step="1"
-                  value={buildStage}
-                  onChange={(e) => setBuildStage(Number(e.target.value))}
-                />
-                <div className="scrubber-ticks">
-                  {[1, 2, 3, 4, 5, 6].map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      className={`tick-btn ${buildStage === s ? 'active' : ''}`}
-                      onClick={() => setBuildStage(s)}
-                    >
-                      Stage {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              )}
 
               {estimate && (
                 <div className="kpi-strip">
                   <div className="kpi-item">
-                    <span>{isEps ? 'EPS 3D Panels + Pegs' : 'Blocks (Incl. Plinth & Waste)'}</span>
+                    <span>
+                      {buildMode === 'piece_by_piece'
+                        ? 'Live Placed Pieces'
+                        : isEps
+                          ? 'EPS 3D Panels + Pegs'
+                          : 'Blocks (Incl. Plinth & Waste)'}
+                    </span>
                     <strong>
-                      {estimate.quantities.wallUnitsCount.toLocaleString()}{' '}
-                      {isEps ? `panels (${estimate.quantities.starterPegsCount} pegs)` : 'blocks'}
+                      {buildMode === 'piece_by_piece' && estimate.quantities.pieceCounts
+                        ? `${estimate.quantities.pieceCounts.epsPanelsPlaced} EPS · ${estimate.quantities.pieceCounts.blockBaysPlaced} bays · ${estimate.quantities.pieceCounts.singleBlocksPlaced} blocks · ${estimate.quantities.starterPegsCount} pegs`
+                        : `${estimate.quantities.wallUnitsCount.toLocaleString()} ${
+                            isEps ? `panels (${estimate.quantities.starterPegsCount} pegs)` : 'blocks'
+                          }`}
                     </strong>
                   </div>
                   <div className="kpi-item">

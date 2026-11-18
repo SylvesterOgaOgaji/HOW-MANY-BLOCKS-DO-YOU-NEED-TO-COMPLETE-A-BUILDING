@@ -1,7 +1,9 @@
 export const PLOT_PRESETS = [
   { id: 'half', label: 'Half Plot (9m × 30m / 270m²)', width: 9, depth: 30 },
+  { id: 'compact_216', label: 'Quarter / Mini Plot (12m × 18m / 216m²)', width: 12, depth: 18 },
   { id: 'full_450', label: 'Standard Plot (15m × 30m / 450m²)', width: 15, depth: 30 },
-  { id: 'full_600', label: 'Full Plot (18m × 36m / 600m²)', width: 18, depth: 36 }
+  { id: 'full_600', label: 'Full Plot (18m × 36m / 600m²)', width: 18, depth: 36 },
+  { id: 'custom', label: 'Custom Land Size (Enter Width × Depth)', width: 15, depth: 25 }
 ];
 
 export const ROOM_PALETTE = [

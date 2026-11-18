@@ -114,12 +114,101 @@ function roundUp(n) {
   return Math.ceil(Number(n) || 0);
 }
 
+export function computeGeometryFromPlacedPieces(placedPieces = [], fallbackFloorAreaM2 = 0) {
+  let epsPanelsPlaced = 0;
+  let blockBaysPlaced = 0;
+  let singleBlocksPlaced = 0;
+  let starterPegsPlaced = 0;
+  let doorsPlaced = 0;
+  let windowsPlaced = 0;
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+
+  let totalWallLengthM = 0;
+  let singleBlockAreaM2 = 0;
+
+  for (const p of placedPieces) {
+    const x = Number(p.x) || 0;
+    const z = Number(p.z) || 0;
+    const dir = p.dir === 'v' ? 'v' : 'h';
+
+    if (p.type === 'eps_panel') {
+      epsPanelsPlaced += 1;
+      totalWallLengthM += 1.2;
+      const ex = dir === 'h' ? x + 1.2 : x + 0.15;
+      const ez = dir === 'v' ? z + 1.2 : z + 0.15;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, ex);
+      minZ = Math.min(minZ, z);
+      maxZ = Math.max(maxZ, ez);
+    } else if (p.type === 'block_9_bay' || p.type === 'block_6_bay') {
+      blockBaysPlaced += 1;
+      totalWallLengthM += 0.9;
+      const ex = dir === 'h' ? x + 0.9 : x + 0.23;
+      const ez = dir === 'v' ? z + 0.9 : z + 0.23;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, ex);
+      minZ = Math.min(minZ, z);
+      maxZ = Math.max(maxZ, ez);
+    } else if (p.type === 'block_9_single' || p.type === 'block_6_single') {
+      singleBlocksPlaced += 1;
+      singleBlockAreaM2 += 0.46 * 0.235;
+      totalWallLengthM += 0.45;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x + 0.45);
+      minZ = Math.min(minZ, z);
+      maxZ = Math.max(maxZ, z + 0.45);
+    } else if (p.type === 'starter_peg') {
+      starterPegsPlaced += 1;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x + 0.2);
+      minZ = Math.min(minZ, z);
+      maxZ = Math.max(maxZ, z + 0.2);
+    } else if (p.type === 'door') {
+      doorsPlaced += 1;
+    } else if (p.type === 'window') {
+      windowsPlaced += 1;
+    }
+  }
+
+  const boundingWidthM = Number.isFinite(minX) ? Math.max(1.2, round2(maxX - minX)) : 0;
+  const boundingDepthM = Number.isFinite(minZ) ? Math.max(1.2, round2(maxZ - minZ)) : 0;
+  const boxArea = boundingWidthM * boundingDepthM;
+  const floorAreaM2 = round2(Math.max(fallbackFloorAreaM2 || 0, boxArea));
+
+  return {
+    geometry: {
+      totalWallLengthM: round2(totalWallLengthM),
+      exteriorWallLengthM: round2(totalWallLengthM),
+      interiorWallLengthM: 0,
+      floorAreaM2,
+      boundingWidthM,
+      boundingDepthM,
+      mergedSegments: []
+    },
+    counts: {
+      epsPanelsPlaced,
+      blockBaysPlaced,
+      singleBlocksPlaced,
+      starterPegsPlaced,
+      doorsPlaced,
+      windowsPlaced,
+      singleBlockAreaM2: round2(singleBlockAreaM2)
+    }
+  };
+}
+
 export function calculateProjectEstimate(input = {}) {
   const cityId = input.city && NIGERIA_CITIES[input.city] ? input.city : 'abuja';
   const cityData = NIGERIA_CITIES[cityId];
   const prices = { ...cityData.prices, ...(input.priceOverrides || {}) };
 
+  const buildMode = input.buildMode === 'piece_by_piece' ? 'piece_by_piece' : 'room_snap';
   const rooms = Array.isArray(input.rooms) ? input.rooms : [];
+  const placedPieces = Array.isArray(input.placedPieces) ? input.placedPieces : [];
   const floors = Number(input.floors) === 2 ? 2 : 1;
   const wallHeightM = Math.max(2.4, Math.min(4.2, Number(input.wallHeightM) || 3.0));
   const wallSystem = ['block_6', 'block_9', 'eps_panel'].includes(input.wallSystem)
@@ -138,20 +227,40 @@ export function calculateProjectEstimate(input = {}) {
           ? 'raft_platform'
           : 'strip';
 
-  const doorsCount = Math.max(1, Number(input.doorsCount) || Math.max(2, rooms.length + 1));
-  const windowsCount = Math.max(1, Number(input.windowsCount) || Math.max(4, rooms.length * 2));
   const doorAreaEach = 0.9 * 2.1; // 1.89 m2
   const windowAreaEach = 1.2 * 1.2; // 1.44 m2
 
-  const geometry = computeWallSegmentsFromRooms(rooms);
-  const grossWallAreaM2 = round2(geometry.totalWallLengthM * wallHeightM * floors);
+  let geometry;
+  let pieceCounts = null;
+  let doorsCount = Math.max(1, Number(input.doorsCount) || Math.max(2, rooms.length + 1));
+  let windowsCount = Math.max(1, Number(input.windowsCount) || Math.max(4, rooms.length * 2));
+  let grossWallAreaM2;
+
+  if (buildMode === 'piece_by_piece') {
+    const pieceRes = computeGeometryFromPlacedPieces(placedPieces, Number(input.platformAreaM2) || 0);
+    geometry = pieceRes.geometry;
+    pieceCounts = pieceRes.counts;
+    doorsCount = Math.max(0, pieceCounts.doorsPlaced || Number(input.doorsCount) || 0);
+    windowsCount = Math.max(0, pieceCounts.windowsPlaced || Number(input.windowsCount) || 0);
+    const fullModuleLen = pieceCounts.epsPanelsPlaced * 1.2 + pieceCounts.blockBaysPlaced * 0.9;
+    grossWallAreaM2 = round2(
+      fullModuleLen * wallHeightM * floors + pieceCounts.singleBlockAreaM2 * floors
+    );
+  } else {
+    geometry = computeWallSegmentsFromRooms(rooms);
+    grossWallAreaM2 = round2(geometry.totalWallLengthM * wallHeightM * floors);
+  }
+
   const doorsAreaM2 = round2(doorsCount * doorAreaEach * floors);
   const windowsAreaM2 = round2(windowsCount * windowAreaEach * floors);
   const totalOpeningsM2 = round2(Math.min(grossWallAreaM2 * 0.45, doorsAreaM2 + windowsAreaM2));
   const netWallAreaM2 = round2(Math.max(0, grossWallAreaM2 - totalOpeningsM2));
 
   // Columns count estimate (~1 column every 3.5m of wall intersection/span)
-  const columnsCount = Math.max(4, Math.ceil(geometry.totalWallLengthM / 3.4));
+  const columnsCount = Math.max(
+    buildMode === 'piece_by_piece' ? 0 : 4,
+    Math.ceil(geometry.totalWallLengthM / 3.4)
+  );
   const columnWidthM = floors === 2 ? 0.225 : 0.225;
   const columnDepthM = floors === 2 ? 0.3 : 0.225; // 9x12 for G+1, 9x9 for bungalow
 
@@ -294,6 +403,7 @@ export function calculateProjectEstimate(input = {}) {
 
   return {
     meta: {
+      buildMode,
       cityId,
       cityName: cityData.name,
       wallSystem,
@@ -321,9 +431,13 @@ export function calculateProjectEstimate(input = {}) {
       wastagePct
     },
     quantities: {
+      pieceCounts,
       wallUnitsLabel: activeSystem.wallUnitsLabel,
       wallUnitsCount: activeSystem.wallUnitsCount,
-      starterPegsCount: activeSystem.starterPegsCount,
+      starterPegsCount:
+        pieceCounts && pieceCounts.starterPegsPlaced > 0
+          ? Math.max(activeSystem.starterPegsCount, pieceCounts.starterPegsPlaced)
+          : activeSystem.starterPegsCount,
       meshStripsM: activeSystem.meshStripsM,
       bindingWireRolls: activeSystem.bindingWireRolls,
       cementBags: totalCementBags,

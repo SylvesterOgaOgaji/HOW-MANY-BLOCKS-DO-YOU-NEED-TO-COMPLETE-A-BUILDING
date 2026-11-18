@@ -94,3 +94,39 @@ test('24h ephemeral workspace saves, reloads, and handles missing/expired record
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('piece_by_piece mode calculates live quantities directly from snapped EPS panels and pegs', () => {
+  const estSmall = calculateProjectEstimate({
+    city: 'lagos_mainland',
+    buildMode: 'piece_by_piece',
+    wallSystem: 'eps_panel',
+    platformAreaM2: 40,
+    placedPieces: [
+      { id: 'p1', type: 'eps_panel', x: 1.8, z: 2.4, dir: 'h' },
+      { id: 'p2', type: 'eps_panel', x: 3.0, z: 2.4, dir: 'h' },
+      { id: 'peg1', type: 'starter_peg', x: 1.8, z: 2.4, dir: 'h' }
+    ]
+  });
+
+  const estLarger = calculateProjectEstimate({
+    city: 'lagos_mainland',
+    buildMode: 'piece_by_piece',
+    wallSystem: 'eps_panel',
+    platformAreaM2: 40,
+    placedPieces: [
+      { id: 'p1', type: 'eps_panel', x: 1.8, z: 2.4, dir: 'h' },
+      { id: 'p2', type: 'eps_panel', x: 3.0, z: 2.4, dir: 'h' },
+      { id: 'p3', type: 'eps_panel', x: 4.2, z: 2.4, dir: 'h' },
+      { id: 'p4', type: 'eps_panel', x: 5.4, z: 2.4, dir: 'h' },
+      { id: 'p5', type: 'eps_panel', x: 6.6, z: 2.4, dir: 'h' }
+    ]
+  });
+
+  assert.equal(estSmall.meta.buildMode, 'piece_by_piece');
+  assert.equal(estSmall.quantities.pieceCounts.epsPanelsPlaced, 2);
+  assert.equal(estSmall.quantities.pieceCounts.starterPegsPlaced, 1);
+  assert.equal(estLarger.quantities.pieceCounts.epsPanelsPlaced, 5);
+  assert.ok(estLarger.quantities.wallUnitsCount > estSmall.quantities.wallUnitsCount);
+  assert.ok(estLarger.costs.carcassTotal > estSmall.costs.carcassTotal);
+});
+
